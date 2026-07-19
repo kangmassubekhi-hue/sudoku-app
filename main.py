@@ -5,6 +5,8 @@ Dibuat buat di-build jadi APK lewat Buildozer + GitHub Actions.
 
 import random
 from kivy.app import App
+from kivy.clock import Clock
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.button import Button
@@ -234,7 +236,14 @@ class SudokuGame(BoxLayout):
         kwargs["orientation"] = "vertical"
         kwargs.setdefault("padding", 8)
         kwargs.setdefault("spacing", 6)
+        # Size to fit its own content instead of stretching to fill the
+        # parent's full height. Combined with the AnchorLayout wrapper in
+        # SudokuApp.build(), this keeps the game docked at the TOP of the
+        # screen so any leftover space (from tall phone aspect ratios) ends
+        # up below the "Game Baru" button instead of as a gap up top.
+        kwargs["size_hint_y"] = None
         super().__init__(**kwargs)
+        self.bind(minimum_height=self.setter("height"))
 
         self.solved_board = None
         self.puzzle_board = None
@@ -243,6 +252,8 @@ class SudokuGame(BoxLayout):
         self.selected_cell = None
         self.difficulty = "medium"
         self.popup = None
+        self.timer_event = None
+        self.elapsed_seconds = 0
 
         self._build_ui()
         self.new_game(self.difficulty)
@@ -254,6 +265,14 @@ class SudokuGame(BoxLayout):
         header.add_widget(
             Label(text="SUDOKU", font_size="22sp", bold=True, color=(0.15, 0.15, 0.4, 1))
         )
+        self.timer_label = Label(
+            text="00:00",
+            font_size="18sp",
+            size_hint=(None, 1),
+            width="70dp",
+            color=(0.15, 0.15, 0.4, 1),
+        )
+        header.add_widget(self.timer_label)
         self.add_widget(header)
 
         self.status_label = Label(
@@ -310,6 +329,28 @@ class SudokuGame(BoxLayout):
         self.selected_cell = None
         self._refresh_grid()
         self.status_label.text = "Selamat bermain!"
+        self._restart_timer()
+
+    # -- Timer ------------------------------------------------------------
+
+    def _restart_timer(self):
+        self._stop_timer()
+        self.elapsed_seconds = 0
+        self._update_timer_label()
+        self.timer_event = Clock.schedule_interval(self._tick_timer, 1)
+
+    def _tick_timer(self, dt):
+        self.elapsed_seconds += 1
+        self._update_timer_label()
+
+    def _update_timer_label(self):
+        minutes, seconds = divmod(self.elapsed_seconds, 60)
+        self.timer_label.text = f"{minutes:02d}:{seconds:02d}"
+
+    def _stop_timer(self):
+        if self.timer_event:
+            self.timer_event.cancel()
+            self.timer_event = None
 
     def _refresh_grid(self):
         for r in range(9):
@@ -357,7 +398,8 @@ class SudokuGame(BoxLayout):
 
     def _check_win(self):
         if is_board_valid_and_complete(self.puzzle_board):
-            self.status_label.text = "Selesai! Sudoku terpecahkan!"
+            self._stop_timer()
+            self.status_label.text = f"Selesai dalam {self.timer_label.text}!"
             self.selected_cell = None
         else:
             filled = all(
@@ -386,7 +428,13 @@ class SudokuGame(BoxLayout):
 class SudokuApp(App):
     def build(self):
         self.title = "Sudoku"
-        return SudokuGame()
+        # Wrap in an AnchorLayout pinned to the top: SudokuGame now sizes
+        # itself to its own content (see minimum_height binding above), so
+        # on tall phone screens the leftover space lands below the game
+        # instead of as a gap above it.
+        root = AnchorLayout(anchor_x="center", anchor_y="top")
+        root.add_widget(SudokuGame())
+        return root
 
 
 if __name__ == "__main__":
